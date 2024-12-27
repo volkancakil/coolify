@@ -3,20 +3,16 @@
 namespace App\Livewire\Project;
 
 use App\Models\Project;
+use Livewire\Attributes\Validate;
 use Livewire\Component;
 
 class AddEmpty extends Component
 {
-    public string $name = '';
+    #[Validate(['required', 'string', 'min:3'])]
+    public string $name;
+
+    #[Validate(['nullable', 'string'])]
     public string $description = '';
-    protected $rules = [
-        'name' => 'required|string|min:3',
-        'description' => 'nullable|string',
-    ];
-    protected $validationAttributes = [
-        'name' => 'Project Name',
-        'description' => 'Project Description',
-    ];
 
     public function submit()
     {
@@ -27,11 +23,10 @@ class AddEmpty extends Component
                 'description' => $this->description,
                 'team_id' => currentTeam()->id,
             ]);
+
             return redirect()->route('project.show', $project->uuid);
         } catch (\Throwable $e) {
             return handleError($e, $this);
-        } finally {
-            $this->name = '';
         }
     }
 }

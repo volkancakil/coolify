@@ -2,43 +2,58 @@
 
 namespace App\Livewire\Project\Database;
 
-use Exception;
-use Livewire\Component;
-use Livewire\WithFileUploads;
 use App\Models\Server;
-use App\Models\StandaloneMariadb;
-use App\Models\StandaloneMongodb;
-use App\Models\StandaloneMysql;
-use App\Models\StandalonePostgresql;
-use App\Models\StandaloneRedis;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
+use Livewire\Component;
 
 class Import extends Component
 {
-    use WithFileUploads;
+    public bool $unsupported = false;
 
-    public $file;
     public $resource;
+
     public $parameters;
+
     public $containers;
-    public bool $validated = true;
+
     public bool $scpInProgress = false;
+
     public bool $importRunning = false;
-    public string $validationMsg = '';
+
+    public ?string $filename = null;
+
+    public ?string $filesize = null;
+
+    public bool $isUploading = false;
+
+    public int $progress = 0;
+
+    public bool $error = false;
+
     public Server $server;
+
     public string $container;
+
     public array $importCommands = [];
+
     public string $postgresqlRestoreCommand = 'pg_restore -U $POSTGRES_USER -d $POSTGRES_DB';
-    public string $mysqlRestoreCommand = 'mysql -u $MYSQL_USER -p $MYSQL_PASSWORD $MYSQL_DATABASE';
-    public string $mariadbRestoreCommand = 'mariadb -u $MARIADB_USER -p $MARIADB_PASSWORD $MARIADB_DATABASE';
+
+    public string $mysqlRestoreCommand = 'mysql -u $MYSQL_USER -p$MYSQL_PASSWORD $MYSQL_DATABASE';
+
+    public string $mariadbRestoreCommand = 'mariadb -u $MARIADB_USER -p$MARIADB_PASSWORD $MARIADB_DATABASE';
+
+    public string $mongodbRestoreCommand = 'mongorestore --authenticationDatabase=admin --username $MONGO_INITDB_ROOT_USERNAME --password $MONGO_INITDB_ROOT_PASSWORD --uri mongodb://localhost:27017 --gzip --archive=';
 
     public function getListeners()
     {
-        $userId = auth()->user()->id;
+        $userId = Auth::id();
+
         return [
             "echo-private:user.{$userId},DatabaseStatusChanged" => '$refresh',
         ];
     }
+
     public function mount()
     {
         $this->parameters = get_route_parameters();
@@ -48,25 +63,12 @@ class Import extends Component
     public function getContainers()
     {
         $this->containers = collect();
-        if (!data_get($this->parameters, 'database_uuid')) {
+        if (! data_get($this->parameters, 'database_uuid')) {
             abort(404);
         }
-
-        $resource = StandalonePostgresql::where('uuid', $this->parameters['database_uuid'])->first();
+        $resource = getResourceByUuid($this->parameters['database_uuid'], data_get(auth()->user()->currentTeam(), 'id'));
         if (is_null($resource)) {
-            $resource = StandaloneRedis::where('uuid', $this->parameters['database_uuid'])->first();
-            if (is_null($resource)) {
-                $resource = StandaloneMongodb::where('uuid', $this->parameters['database_uuid'])->first();
-                if (is_null($resource)) {
-                    $resource = StandaloneMysql::where('uuid', $this->parameters['database_uuid'])->first();
-                    if (is_null($resource)) {
-                        $resource = StandaloneMariadb::where('uuid', $this->parameters['database_uuid'])->first();
-                        if (is_null($resource)) {
-                            abort(404);
-                        }
-                    }
-                }
-            }
+            abort(404);
         }
         $this->resource = $resource;
         $this->server = $this->resource->destination->server;
@@ -75,51 +77,51 @@ class Import extends Component
             $this->containers->push($this->container);
         }
 
-        if ($this->containers->count() > 1) {
-            $this->validated = false;
-            $this->validationMsg = 'The database service has more than one container running. Cannot import.';
-        }
-
         if (
-            $this->resource->getMorphClass() == 'App\Models\StandaloneRedis'
-            || $this->resource->getMorphClass() == 'App\Models\StandaloneMongodb'
+            $this->resource->getMorphClass() === \App\Models\StandaloneRedis::class ||
+            $this->resource->getMorphClass() === \App\Models\StandaloneKeydb::class ||
+            $this->resource->getMorphClass() === \App\Models\StandaloneDragonfly::class ||
+            $this->resource->getMorphClass() === \App\Models\StandaloneClickhouse::class
         ) {
-            $this->validated = false;
-            $this->validationMsg = 'This database type is not currently supported.';
+            $this->unsupported = true;
         }
     }
 
     public function runImport()
     {
-        $this->validate([
-            'file' => 'required|file|max:102400'
-        ]);
+        if ($this->filename === '') {
+            $this->dispatch('error', 'Please select a file to import.');
 
-        $this->importRunning = true;
-        $this->scpInProgress = true;
-
+            return;
+        }
         try {
-            $uploadedFilename = $this->file->store('backup-import');
+            $uploadedFilename = "upload/{$this->resource->uuid}/restore";
             $path = Storage::path($uploadedFilename);
-            $tmpPath = '/tmp/' . basename($uploadedFilename);
+            if (! Storage::exists($uploadedFilename)) {
+                $this->dispatch('error', 'The file does not exist or has been deleted.');
 
-            // SCP the backup file to the server.
+                return;
+            }
+            $tmpPath = '/tmp/'.basename($uploadedFilename);
             instant_scp($path, $tmpPath, $this->server);
-            $this->scpInProgress = false;
-
+            Storage::delete($uploadedFilename);
             $this->importCommands[] = "docker cp {$tmpPath} {$this->container}:{$tmpPath}";
 
             switch ($this->resource->getMorphClass()) {
-                case 'App\Models\StandaloneMariadb':
+                case \App\Models\StandaloneMariadb::class:
                     $this->importCommands[] = "docker exec {$this->container} sh -c '{$this->mariadbRestoreCommand} < {$tmpPath}'";
                     $this->importCommands[] = "rm {$tmpPath}";
                     break;
-                case 'App\Models\StandaloneMysql':
+                case \App\Models\StandaloneMysql::class:
                     $this->importCommands[] = "docker exec {$this->container} sh -c '{$this->mysqlRestoreCommand} < {$tmpPath}'";
                     $this->importCommands[] = "rm {$tmpPath}";
                     break;
-                case 'App\Models\StandalonePostgresql':
+                case \App\Models\StandalonePostgresql::class:
                     $this->importCommands[] = "docker exec {$this->container} sh -c '{$this->postgresqlRestoreCommand} {$tmpPath}'";
+                    $this->importCommands[] = "rm {$tmpPath}";
+                    break;
+                case \App\Models\StandaloneMongodb::class:
+                    $this->importCommands[] = "docker exec {$this->container} sh -c '{$this->mongodbRestoreCommand}{$tmpPath}'";
                     $this->importCommands[] = "rm {$tmpPath}";
                     break;
             }
@@ -127,13 +129,12 @@ class Import extends Component
             $this->importCommands[] = "docker exec {$this->container} sh -c 'rm {$tmpPath}'";
             $this->importCommands[] = "docker exec {$this->container} sh -c 'echo \"Import finished with exit code $?\"'";
 
-            if (!empty($this->importCommands)) {
+            if (! empty($this->importCommands)) {
                 $activity = remote_process($this->importCommands, $this->server, ignore_errors: true);
-                $this->dispatch('newMonitorActivity', $activity->id);
+                $this->dispatch('activityMonitor', $activity->id);
             }
         } catch (\Throwable $e) {
-            $this->validated = false;
-            $this->validationMsg = $e->getMessage();
+            return handleError($e, $this);
         }
     }
 }

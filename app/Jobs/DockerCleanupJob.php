@@ -4,6 +4,8 @@ namespace App\Jobs;
 
 use App\Actions\Server\CleanupDocker;
 use App\Models\Server;
+use App\Notifications\Server\DockerCleanupFailed;
+use App\Notifications\Server\DockerCleanupSuccess;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -11,55 +13,61 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\Log;
-use RuntimeException;
 
-class DockerCleanupJob implements ShouldQueue, ShouldBeEncrypted
+class DockerCleanupJob implements ShouldBeEncrypted, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public $timeout = 300;
-    public ?int $usageBefore = null;
+    public $timeout = 600;
 
-    public function __construct(public Server $server)
+    public $tries = 1;
+
+    public ?string $usageBefore = null;
+
+    public function middleware(): array
     {
+        return [(new WithoutOverlapping($this->server->uuid))->dontRelease()];
     }
+
+    public function __construct(public Server $server, public bool $manualCleanup = false) {}
+
     public function handle(): void
     {
         try {
-            $isInprogress = false;
-            $this->server->applications()->each(function ($application) use (&$isInprogress) {
-                if ($application->isDeploymentInprogress()) {
-                    $isInprogress = true;
-                    return;
-                }
-            });
-            if ($isInprogress) {
-                throw new RuntimeException('DockerCleanupJob: ApplicationDeploymentQueue is not empty, skipping...');
-            }
-            if (!$this->server->isFunctional()) {
+            if (! $this->server->isFunctional()) {
                 return;
             }
+
             $this->usageBefore = $this->server->getDiskUsage();
-            ray('Usage before: ' . $this->usageBefore);
-            if ($this->usageBefore >= $this->server->settings->cleanup_after_percentage) {
-                ray('Cleaning up ' . $this->server->name);
-                CleanupDocker::run($this->server);
+
+            if ($this->manualCleanup || $this->server->settings->force_docker_cleanup) {
+                CleanupDocker::run(server: $this->server);
                 $usageAfter = $this->server->getDiskUsage();
-                if ($usageAfter <  $this->usageBefore) {
-                    ray('Saved ' . ($this->usageBefore - $usageAfter) . '% disk space on ' . $this->server->name);
-                    send_internal_notification('DockerCleanupJob done: Saved ' . ($this->usageBefore - $usageAfter) . '% disk space on ' . $this->server->name);
-                    Log::info('DockerCleanupJob done: Saved ' . ($this->usageBefore - $usageAfter) . '% disk space on ' . $this->server->name);
+                $this->server->team?->notify(new DockerCleanupSuccess($this->server, ($this->manualCleanup ? 'Manual' : 'Forced').' Docker cleanup job executed successfully. Disk usage before: '.$this->usageBefore.'%, Disk usage after: '.$usageAfter.'%.'));
+
+                return;
+            }
+
+            if (str($this->usageBefore)->isEmpty() || $this->usageBefore === null || $this->usageBefore === 0) {
+                CleanupDocker::run(server: $this->server);
+                $this->server->team?->notify(new DockerCleanupSuccess($this->server, 'Docker cleanup job executed successfully, but no disk usage could be determined.'));
+            }
+
+            if ($this->usageBefore >= $this->server->settings->docker_cleanup_threshold) {
+                CleanupDocker::run(server: $this->server);
+                $usageAfter = $this->server->getDiskUsage();
+                $diskSaved = $this->usageBefore - $usageAfter;
+
+                if ($diskSaved > 0) {
+                    $this->server->team?->notify(new DockerCleanupSuccess($this->server, 'Saved '.$diskSaved.'% disk space. Disk usage before: '.$this->usageBefore.'%, Disk usage after: '.$usageAfter.'%.'));
                 } else {
-                    Log::info('DockerCleanupJob failed to save disk space on ' . $this->server->name);
+                    $this->server->team?->notify(new DockerCleanupSuccess($this->server, 'Docker cleanup job executed successfully, but no disk space was saved. Disk usage before: '.$this->usageBefore.'%, Disk usage after: '.$usageAfter.'%.'));
                 }
             } else {
-                ray('No need to clean up ' . $this->server->name);
-                Log::info('No need to clean up ' . $this->server->name);
+                $this->server->team?->notify(new DockerCleanupSuccess($this->server, 'No cleanup needed for '.$this->server->name));
             }
         } catch (\Throwable $e) {
-            send_internal_notification('DockerCleanupJob failed with: ' . $e->getMessage());
-            ray($e->getMessage());
+            $this->server->team?->notify(new DockerCleanupFailed($this->server, 'Docker cleanup job failed with the following error: '.$e->getMessage()));
             throw $e;
         }
     }

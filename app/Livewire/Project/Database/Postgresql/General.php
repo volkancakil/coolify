@@ -4,6 +4,7 @@ namespace App\Livewire\Project\Database\Postgresql;
 
 use App\Actions\Database\StartDatabaseProxy;
 use App\Actions\Database\StopDatabaseProxy;
+use App\Models\Server;
 use App\Models\StandalonePostgresql;
 use Exception;
 use Livewire\Component;
@@ -13,12 +14,25 @@ use function Aws\filter;
 class General extends Component
 {
     public StandalonePostgresql $database;
+
+    public Server $server;
+
     public string $new_filename;
+
     public string $new_content;
+
     public ?string $db_url = null;
+
     public ?string $db_url_public = null;
 
-    protected $listeners = ['refresh', 'save_init_script', 'delete_init_script'];
+    public function getListeners()
+    {
+        return [
+            'refresh',
+            'save_init_script',
+            'delete_init_script',
+        ];
+    }
 
     protected $rules = [
         'database.name' => 'required',
@@ -35,7 +49,9 @@ class General extends Component
         'database.is_public' => 'nullable|boolean',
         'database.public_port' => 'nullable|integer',
         'database.is_log_drain_enabled' => 'nullable|boolean',
+        'database.custom_docker_run_options' => 'nullable',
     ];
+
     protected $validationAttributes = [
         'database.name' => 'Name',
         'database.description' => 'Description',
@@ -50,62 +66,70 @@ class General extends Component
         'database.ports_mappings' => 'Port Mapping',
         'database.is_public' => 'Is Public',
         'database.public_port' => 'Public Port',
+        'database.custom_docker_run_options' => 'Custom Docker Run Options',
     ];
+
     public function mount()
     {
-        $this->db_url = $this->database->getDbUrl(true);
-        if ($this->database->is_public) {
-            $this->db_url_public = $this->database->getDbUrl();
-        }
+        $this->db_url = $this->database->internal_db_url;
+        $this->db_url_public = $this->database->external_db_url;
+        $this->server = data_get($this->database, 'destination.server');
     }
-    public function instantSaveAdvanced() {
+
+    public function instantSaveAdvanced()
+    {
         try {
-            if (!$this->database->destination->server->isLogDrainEnabled()) {
+            if (! $this->server->isLogDrainEnabled()) {
                 $this->database->is_log_drain_enabled = false;
                 $this->dispatch('error', 'Log drain is not enabled on the server. Please enable it first.');
+
                 return;
             }
             $this->database->save();
-            $this->dispatch('success', 'Database updated successfully.');
+            $this->dispatch('success', 'Database updated.');
             $this->dispatch('success', 'You need to restart the service for the changes to take effect.');
         } catch (Exception $e) {
             return handleError($e, $this);
         }
     }
+
     public function instantSave()
     {
         try {
-            if ($this->database->is_public && !$this->database->public_port) {
+            if ($this->database->is_public && ! $this->database->public_port) {
                 $this->dispatch('error', 'Public port is required.');
                 $this->database->is_public = false;
+
                 return;
             }
             if ($this->database->is_public) {
-                if (!str($this->database->status)->startsWith('running')) {
+                if (! str($this->database->status)->startsWith('running')) {
                     $this->dispatch('error', 'Database must be started to be publicly accessible.');
                     $this->database->is_public = false;
+
                     return;
                 }
                 StartDatabaseProxy::run($this->database);
-                $this->db_url_public = $this->database->getDbUrl();
                 $this->dispatch('success', 'Database is now publicly accessible.');
             } else {
                 StopDatabaseProxy::run($this->database);
-                $this->db_url_public = null;
                 $this->dispatch('success', 'Database is no longer publicly accessible.');
             }
+            $this->db_url_public = $this->database->external_db_url;
             $this->database->save();
         } catch (\Throwable $e) {
-            $this->database->is_public = !$this->database->is_public;
+            $this->database->is_public = ! $this->database->is_public;
+
             return handleError($e, $this);
         }
     }
+
     public function save_init_script($script)
     {
         $this->database->init_scripts = filter($this->database->init_scripts, fn ($s) => $s['filename'] !== $script['filename']);
         $this->database->init_scripts = array_merge($this->database->init_scripts, [$script]);
         $this->database->save();
-        $this->dispatch('success', 'Init script saved successfully.');
+        $this->dispatch('success', 'Init script saved.');
     }
 
     public function delete_init_script($script)
@@ -116,7 +140,8 @@ class General extends Component
             $this->database->init_scripts = $collection->filter(fn ($s) => $s['filename'] !== $script['filename'])->toArray();
             $this->database->save();
             $this->refresh();
-            $this->dispatch('success', 'Init script deleted successfully.');
+            $this->dispatch('success', 'Init script deleted.');
+
             return;
         }
     }
@@ -135,9 +160,10 @@ class General extends Component
         $found = collect($this->database->init_scripts)->firstWhere('filename', $this->new_filename);
         if ($found) {
             $this->dispatch('error', 'Filename already exists.');
+
             return;
         }
-        if (!isset($this->database->init_scripts)) {
+        if (! isset($this->database->init_scripts)) {
             $this->database->init_scripts = [];
         }
         $this->database->init_scripts = array_merge($this->database->init_scripts, [
@@ -145,10 +171,10 @@ class General extends Component
                 'index' => count($this->database->init_scripts),
                 'filename' => $this->new_filename,
                 'content' => $this->new_content,
-            ]
+            ],
         ]);
         $this->database->save();
-        $this->dispatch('success', 'Init script added successfully.');
+        $this->dispatch('success', 'Init script added.');
         $this->new_content = '';
         $this->new_filename = '';
     }
@@ -161,9 +187,15 @@ class General extends Component
             }
             $this->validate();
             $this->database->save();
-            $this->dispatch('success', 'Database updated successfully.');
+            $this->dispatch('success', 'Database updated.');
         } catch (Exception $e) {
             return handleError($e, $this);
+        } finally {
+            if (is_null($this->database->config_hash)) {
+                $this->database->isConfigurationChanged(true);
+            } else {
+                $this->dispatch('configurationChanged');
+            }
         }
     }
 }

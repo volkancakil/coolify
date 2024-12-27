@@ -1,8 +1,5 @@
-<div>
-    <x-modal yesOrNo modalId="deleteEnvironment" modalTitle="Delete Environment">
-        <x-slot:modalBody>
-            <p>This environment will be deleted. It is not reversible. <br>Please think again.</p>
-        </x-slot:modalBody>
-    </x-modal>
-    <x-forms.button isError isModal modalId="deleteEnvironment"> Delete Environment</x-forms.button>
-</div>
+<x-modal-confirmation title="Confirm Environment Deletion?" buttonTitle="Delete Environment" isErrorButton
+    submitAction="delete" :actions="['This will delete the selected environment.']"
+    confirmationLabel="Please confirm the execution of the actions by entering the Environment Name below"
+    shortConfirmationLabel="Environment Name" confirmationText="{{ $environmentName }}" :confirmWithPassword="false"
+    step2ButtonText="Permanently Delete" />

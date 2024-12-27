@@ -1,6 +1,7 @@
-# documentation: https://docs.phpmyadmin.net/en/latest/
+# documentation: https://phpmyadmin.net
 # slogan: phpMyAdmin is a web-based database management tool for administering your MySQL and MariaDB databases through a user-friendly interface.
 # tags: database management
+# logo: svgs/phpmyadmin.svg
 
 services:
   phpmyadmin:
@@ -15,7 +16,7 @@ services:
     volumes:
       - phpmyadmin-config:/config
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:80"]
       interval: 2s
       timeout: 10s
       retries: 15

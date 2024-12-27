@@ -5,19 +5,24 @@ namespace App\Livewire\Project\New;
 use App\Models\EnvironmentVariable;
 use App\Models\Project;
 use App\Models\Service;
-use Livewire\Component;
+use App\Models\StandaloneDocker;
+use App\Models\SwarmDocker;
 use Illuminate\Support\Str;
+use Livewire\Component;
 use Symfony\Component\Yaml\Yaml;
 
 class DockerCompose extends Component
 {
     public string $dockerComposeRaw = '';
+
     public string $envFile = '';
+
     public array $parameters;
+
     public array $query;
+
     public function mount()
     {
-
         $this->parameters = get_route_parameters();
         $this->query = request()->query();
         if (isDev()) {
@@ -38,23 +43,43 @@ class DockerCompose extends Component
           ';
         }
     }
+
     public function submit()
     {
+        $server_id = $this->query['server_id'];
         try {
             $this->validate([
-                'dockerComposeRaw' => 'required'
+                'dockerComposeRaw' => 'required',
             ]);
             $this->dockerComposeRaw = Yaml::dump(Yaml::parse($this->dockerComposeRaw), 10, 2, Yaml::DUMP_MULTI_LINE_LITERAL_BLOCK);
-            $server_id = $this->query['server_id'];
+
+            $isValid = validateComposeFile($this->dockerComposeRaw, $server_id);
+            if ($isValid !== 'OK') {
+                return $this->dispatch('error', "Invalid docker-compose file.\n$isValid");
+            }
 
             $project = Project::where('uuid', $this->parameters['project_uuid'])->first();
             $environment = $project->load(['environments'])->environments->where('name', $this->parameters['environment_name'])->first();
+
+            $destination_uuid = $this->query['destination'];
+            $destination = StandaloneDocker::where('uuid', $destination_uuid)->first();
+            if (! $destination) {
+                $destination = SwarmDocker::where('uuid', $destination_uuid)->first();
+            }
+            if (! $destination) {
+                throw new \Exception('Destination not found. What?!');
+            }
+            $destination_class = $destination->getMorphClass();
+
             $service = Service::create([
-                'name' => 'service' . Str::random(10),
+                'name' => 'service'.Str::random(10),
                 'docker_compose_raw' => $this->dockerComposeRaw,
                 'environment_id' => $environment->id,
                 'server_id' => (int) $server_id,
+                'destination_id' => $destination->id,
+                'destination_type' => $destination_class,
             ]);
+
             $variables = parseEnvFormatToArray($this->envFile);
             foreach ($variables as $key => $variable) {
                 EnvironmentVariable::create([
@@ -74,7 +99,6 @@ class DockerCompose extends Component
                 'environment_name' => $environment->name,
                 'project_uuid' => $project->uuid,
             ]);
-
         } catch (\Throwable $e) {
             return handleError($e, $this);
         }

@@ -2,7 +2,6 @@
 
 namespace App\Livewire;
 
-use App\Enums\ProcessStatus;
 use App\Models\User;
 use Livewire\Component;
 use Spatie\Activitylog\Models\Activity;
@@ -10,12 +9,20 @@ use Spatie\Activitylog\Models\Activity;
 class ActivityMonitor extends Component
 {
     public ?string $header = null;
+
     public $activityId;
+
     public $eventToDispatch = 'activityFinished';
+
     public $isPollingActive = false;
 
+    public bool $fullHeight = false;
+
+    public bool $showWaiting = false;
+
     protected $activity;
-    protected $listeners = ['newMonitorActivity'];
+
+    protected $listeners = ['activityMonitor' => 'newMonitorActivity'];
 
     public function newMonitorActivity($activityId, $eventToDispatch = 'activityFinished')
     {
@@ -50,11 +57,12 @@ class ActivityMonitor extends Component
                         $causer_id = data_get($this->activity, 'causer_id');
                         $user = User::find($causer_id);
                         if ($user) {
-                            foreach($user->teams as $team) {
+                            foreach ($user->teams as $team) {
                                 $teamId = $team->id;
                                 $this->eventToDispatch::dispatch($teamId);
                             }
                         }
+
                         return;
                     }
                     $this->dispatch($this->eventToDispatch);

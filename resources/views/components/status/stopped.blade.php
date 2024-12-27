@@ -1,8 +1,13 @@
 @props([
     'status' => 'Stopped',
+    'noLoading' => false,
 ])
-<x-loading wire:loading.delay.longer />
-<div class="flex items-center gap-2 " wire:loading.remove.delay.longer>
-    <div class="badge badge-error badge-xs"></div>
-    <div class="text-xs font-medium tracking-wide text-error">{{ Str::headline($status) }}</div>
+<div class="flex items-center">
+    @if (!$noLoading)
+        <x-loading wire:loading.delay.longer />
+    @endif
+    <span wire:loading.remove.delay.longer class="flex items-center">
+        <div class="badge badge-error "></div>
+        <div class="pl-2 pr-1 text-xs font-bold tracking-wider text-error">{{ str($status)->before(':')->headline() }}</div>
+    </span>
 </div>
