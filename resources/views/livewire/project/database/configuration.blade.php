@@ -1,58 +1,47 @@
 <div>
+    <x-slot:title>
+        {{ data_get_str($database, 'name')->limit(10) }} > Configuration | Coolify
+    </x-slot>
     <h1>Configuration</h1>
+    <livewire:project.shared.configuration-checker :resource="$database" />
     <livewire:project.database.heading :database="$database" />
-    <x-modal modalId="startDatabase" noSubmit>
-        <x-slot:modalBody>
-            <livewire:activity-monitor header="Database Startup Logs" />
-        </x-slot:modalBody>
-        <x-slot:modalSubmit>
-            <x-forms.button onclick="startDatabase.close()" type="submit">
-                Close
-            </x-forms.button>
-        </x-slot:modalSubmit>
-    </x-modal>
-    <div x-data="{ activeTab: window.location.hash ? window.location.hash.substring(1) : 'general' }" class="flex h-full pt-6">
-        <div class="flex flex-col gap-4 min-w-fit">
-            <a :class="activeTab === 'general' && 'text-white'"
-                @click.prevent="activeTab = 'general';
-                window.location.hash = 'general'"
-                href="#">General</a>
-            <a :class="activeTab === 'environment-variables' && 'text-white'"
-                @click.prevent="activeTab = 'environment-variables'; window.location.hash = 'environment-variables'"
-                href="#">Environment
-                Variables</a>
-            <a :class="activeTab === 'server' && 'text-white'"
-                @click.prevent="activeTab = 'server';
-                window.location.hash = 'server'"
-                href="#">Server
-            </a>
-            <a :class="activeTab === 'storages' && 'text-white'"
-                @click.prevent="activeTab = 'storages';
-                window.location.hash = 'storages'"
-                href="#">Storages
-            </a>
-            <a :class="activeTab === 'import' && 'text-white'"
-                @click.prevent="activeTab = 'import';
-            window.location.hash = 'import'" href="#">Import
-                Backup
-            </a>
-            <a :class="activeTab === 'webhooks' && 'text-white'"
-                @click.prevent="activeTab = 'webhooks'; window.location.hash = 'webhooks'" href="#">Webhooks
-            </a>
-            <a :class="activeTab === 'resource-limits' && 'text-white'"
-                @click.prevent="activeTab = 'resource-limits';
-                window.location.hash = 'resource-limits'"
-                href="#">Resource Limits
-            </a>
-
-            <a :class="activeTab === 'danger' && 'text-white'"
-                @click.prevent="activeTab = 'danger';
-                window.location.hash = 'danger'"
-                href="#">Danger Zone
-            </a>
+    <div class="flex flex-col h-full gap-8 pt-6 sm:flex-row">
+        <div class="flex flex-col items-start gap-2 min-w-fit">
+            <a class='menu-item' wire:current.exact="menu-item-active"
+                href="{{ route('project.database.configuration', ['project_uuid' => $project->uuid, 'environment_uuid' => $environment->uuid, 'database_uuid' => $database->uuid]) }}"
+                wire:navigate>General</a>
+            <a class='menu-item' wire:current.exact="menu-item-active"
+                href="{{ route('project.database.environment-variables', ['project_uuid' => $project->uuid, 'environment_uuid' => $environment->uuid, 'database_uuid' => $database->uuid]) }}"
+                wire:navigate>Environment Variables</a>
+            <a class='menu-item' wire:current.exact="menu-item-active"
+                href="{{ route('project.database.servers', ['project_uuid' => $project->uuid, 'environment_uuid' => $environment->uuid, 'database_uuid' => $database->uuid]) }}"
+                wire:navigate>Servers</a>
+            <a class='menu-item' wire:current.exact="menu-item-active"
+                href="{{ route('project.database.persistent-storage', ['project_uuid' => $project->uuid, 'environment_uuid' => $environment->uuid, 'database_uuid' => $database->uuid]) }}"
+                wire:navigate>Persistent Storage</a>
+            <a class='menu-item' wire:current.exact="menu-item-active"
+                href="{{ route('project.database.import-backups', ['project_uuid' => $project->uuid, 'environment_uuid' => $environment->uuid, 'database_uuid' => $database->uuid]) }}">Import
+                Backups</a>
+            <a class='menu-item' wire:current.exact="menu-item-active"
+                href="{{ route('project.database.webhooks', ['project_uuid' => $project->uuid, 'environment_uuid' => $environment->uuid, 'database_uuid' => $database->uuid]) }}"
+                wire:navigate>Webhooks</a>
+            <a class="menu-item" wire:current.exact="menu-item-active"
+                href="{{ route('project.database.resource-limits', ['project_uuid' => $project->uuid, 'environment_uuid' => $environment->uuid, 'database_uuid' => $database->uuid]) }}"
+                wire:navigate>Resource Limits</a>
+            <a class="menu-item" wire:current.exact="menu-item-active"
+                href="{{ route('project.database.resource-operations', ['project_uuid' => $project->uuid, 'environment_uuid' => $environment->uuid, 'database_uuid' => $database->uuid]) }}"
+                wire:navigate>Resource Operations</a>
+            <a class='menu-item' wire:current.exact="menu-item-active"
+                href="{{ route('project.database.metrics', ['project_uuid' => $project->uuid, 'environment_uuid' => $environment->uuid, 'database_uuid' => $database->uuid]) }}">Metrics</a>
+            <a class='menu-item' wire:current.exact="menu-item-active"
+                href="{{ route('project.database.tags', ['project_uuid' => $project->uuid, 'environment_uuid' => $environment->uuid, 'database_uuid' => $database->uuid]) }}"
+                wire:navigate>Tags</a>
+            <a class='menu-item' wire:current.exact="menu-item-active"
+                href="{{ route('project.database.danger', ['project_uuid' => $project->uuid, 'environment_uuid' => $environment->uuid, 'database_uuid' => $database->uuid]) }}"
+                wire:navigate>Danger Zone</a>
         </div>
-        <div class="w-full pl-8">
-            <div x-cloak x-show="activeTab === 'general'" class="h-full">
+        <div class="w-full">
+            @if ($currentRoute === 'project.database.configuration')
                 @if ($database->type() === 'standalone-postgresql')
                     <livewire:project.database.postgresql.general :database="$database" />
                 @elseif ($database->type() === 'standalone-redis')
@@ -63,29 +52,34 @@
                     <livewire:project.database.mysql.general :database="$database" />
                 @elseif ($database->type() === 'standalone-mariadb')
                     <livewire:project.database.mariadb.general :database="$database" />
+                @elseif ($database->type() === 'standalone-keydb')
+                    <livewire:project.database.keydb.general :database="$database" />
+                @elseif ($database->type() === 'standalone-dragonfly')
+                    <livewire:project.database.dragonfly.general :database="$database" />
+                @elseif ($database->type() === 'standalone-clickhouse')
+                    <livewire:project.database.clickhouse.general :database="$database" />
                 @endif
-            </div>
-            <div x-cloak x-show="activeTab === 'environment-variables'">
+            @elseif ($currentRoute === 'project.database.environment-variables')
                 <livewire:project.shared.environment-variable.all :resource="$database" />
-            </div>
-            <div x-cloak x-show="activeTab === 'server'">
+            @elseif ($currentRoute === 'project.database.servers')
                 <livewire:project.shared.destination :resource="$database" />
-            </div>
-            <div x-cloak x-show="activeTab === 'storages'">
+            @elseif ($currentRoute === 'project.database.persistent-storage')
                 <livewire:project.service.storage :resource="$database" />
-            </div>
-            <div x-cloak x-show="activeTab === 'webhooks'">
-                <livewire:project.shared.webhooks :resource="$database" />
-            </div>
-            <div x-cloak x-show="activeTab === 'resource-limits'">
-                <livewire:project.shared.resource-limits :resource="$database" />
-            </div>
-            <div x-cloak x-show="activeTab === 'import'">
+            @elseif ($currentRoute === 'project.database.import-backups')
                 <livewire:project.database.import :resource="$database" />
-            </div>
-            <div x-cloak x-show="activeTab === 'danger'">
+            @elseif ($currentRoute === 'project.database.webhooks')
+                <livewire:project.shared.webhooks :resource="$database" />
+            @elseif ($currentRoute === 'project.database.resource-limits')
+                <livewire:project.shared.resource-limits :resource="$database" />
+            @elseif ($currentRoute === 'project.database.resource-operations')
+                <livewire:project.shared.resource-operations :resource="$database" />
+            @elseif ($currentRoute === 'project.database.metrics')
+                <livewire:project.shared.metrics :resource="$database" />
+            @elseif ($currentRoute === 'project.database.tags')
+                <livewire:project.shared.tags :resource="$database" />
+            @elseif ($currentRoute === 'project.database.danger')
                 <livewire:project.shared.danger :resource="$database" />
-            </div>
+            @endif
         </div>
     </div>
 </div>

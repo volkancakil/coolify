@@ -1,38 +1,99 @@
 <div>
-    <h2>Server</h2>
+    <h2>Servers</h2>
     <div class="">Server related configurations.</div>
-    <h3 class="pt-4">Destination Server & Network</h3>
-    <div class="py-4">
-        <a class="box"
-            href="{{ route('server.show', ['server_uuid' => data_get($resource, 'destination.server.uuid')]) }}">On
-            server <span class="px-1 text-warning">{{ data_get($resource, 'destination.server.name') }}</span>
-            in <span class="px-1 text-warning"> {{ data_get($resource, 'destination.network') }} </span> network.</a>
-    </div>
-    {{-- Additional Destinations:
-    {{$resource->additional_destinations}} --}}
-    {{-- @if (count($servers) > 0)
-        <div>
-            <h3>Additional Servers</h3>
-            @foreach ($servers as $server)
-                <form wire:submit='submit' class="p-2 border border-coolgray-400">
-                    <h4>{{ $server->name }}</h4>
-                    <div class="text-sm text-coolgray-600">{{ $server->description }}</div>
-                    <x-forms.checkbox id="additionalServers.{{ $loop->index }}.enabled" label="Enabled">
-                    </x-forms.checkbox>
-                    <x-forms.select label="Destination" id="additionalServers.{{ $loop->index }}.destination" required>
-                        @foreach ($server->destinations() as $destination)
-                            @if ($loop->first)
-                                <option selected value="{{ $destination->uuid }}">{{ $destination->name }}</option>
-                                <option value="{{ $destination->uuid }}">{{ $destination->name }}</option>
-                            @else
-                                <option value="{{ $destination->uuid }}">{{ $destination->name }}</option>
-                                <option value="{{ $destination->uuid }}">{{ $destination->name }}</option>
-                            @endif
-                        @endforeach
-                    </x-forms.select>
-                    <x-forms.button type="submit">Save</x-forms.button>
-                </form>
-            @endforeach
+    <div class="grid grid-cols-1 gap-4 py-4">
+        <div class="flex flex-col gap-2">
+            <h3>Primary Server</h3>
+            <div
+                class="relative flex flex-col bg-white border cursor-default dark:text-white box-without-bg dark:bg-coolgray-100 w-96 dark:border-black">
+                @if (str($resource->realStatus())->startsWith('running'))
+                    <div title="{{ $resource->realStatus() }}" class="absolute bg-success -top-1 -left-1 badge ">
+                    </div>
+                @elseif (str($resource->realStatus())->startsWith('exited'))
+                    <div title="{{ $resource->realStatus() }}" class="absolute bg-error -top-1 -left-1 badge ">
+                    </div>
+                @endif
+                <div class="box-title">
+                    Server: {{ data_get($resource, 'destination.server.name') }}
+                </div>
+                <div class="box-description">
+                    Network: {{ data_get($resource, 'destination.network') }}
+                </div>
+            </div>
+            @if ($resource?->additional_networks?->count() > 0)
+                <div class="flex gap-2">
+                    <x-forms.button
+                        wire:click="redeploy('{{ data_get($resource, 'destination.id') }}','{{ data_get($resource, 'destination.server.id') }}')">Deploy</x-forms.button>
+                    @if (str($resource->realStatus())->startsWith('running'))
+                        <x-forms.button isError
+                            wire:click="stop('{{ data_get($resource, 'destination.server.id') }}')">Stop</x-forms.button>
+                    @endif
+                </div>
+            @endif
         </div>
-    @endif --}}
+        @if ($resource?->additional_networks?->count() > 0 && data_get($resource, 'build_pack') !== 'dockercompose')
+            <h3>Additional Server(s)</h3>
+            @foreach ($resource->additional_networks as $destination)
+                <div class="flex flex-col gap-2">
+                    <div class="relative flex flex-col w-full box">
+                        @if (str(data_get($destination, 'pivot.status'))->startsWith('running'))
+                            <div title="{{ data_get($destination, 'pivot.status') }}"
+                                class="absolute bg-success -top-1 -left-1 badge "></div>
+                        @elseif (str(data_get($destination, 'pivot.status'))->startsWith('exited'))
+                            <div title="{{ data_get($destination, 'pivot.status') }}"
+                                class="absolute bg-error -top-1 -left-1 badge "></div>
+                        @endif
+                        <div>
+                            <div class="box-title">
+                                Server: {{ data_get($destination, 'server.name') }}
+                            </div>
+                            <div class="box-description">
+                                Network: {{ data_get($destination, 'network') }}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex gap-2">
+                        <x-forms.button
+                            wire:click="redeploy('{{ data_get($destination, 'id') }}','{{ data_get($destination, 'server.id') }}')">Deploy</x-forms.button>
+                        <x-forms.button
+                            wire:click="promote('{{ data_get($destination, 'id') }}','{{ data_get($destination, 'server.id') }}')">Promote
+                            to Primary </x-forms.button>
+                        @if (data_get_str($destination, 'pivot.status')->startsWith('running'))
+                            <x-forms.button isError
+                                wire:click="stop('{{ data_get($destination, 'server.id') }}')">Stop</x-forms.button>
+                        @endif
+                        <x-modal-confirmation title="Confirm server removal?" isErrorButton buttonTitle="Remove Server"
+                            submitAction="removeServer({{ data_get($destination, 'id') }},{{ data_get($destination, 'server.id') }})"
+                            :actions="[
+                                'This will stop the all running applications on this server and remove it as a deployment destination.',
+                            ]" confirmationText="{{ data_get($destination, 'server.name') }}"
+                            confirmationLabel="Please confirm the execution of the actions by entering the Server Name below"
+                            shortConfirmationLabel="Server Name" step3ButtonText="Permanently Remove Server" />
+                    </div>
+                </div>
+            @endforeach
+        @endif
+    </div>
+    @if ($resource->getMorphClass() === 'App\Models\Application' && data_get($resource, 'build_pack') !== 'dockercompose')
+        @if (count($networks) > 0)
+            <h4>Choose another server</h4>
+            <div class="grid grid-cols-1 gap-4">
+                @foreach ($networks as $network)
+                    <div wire:click="addServer('{{ $network->id }}','{{ data_get($network, 'server.id') }}')"
+                        class="relative flex flex-col cursor-default dark:text-white box w-96 group">
+                        <div>
+                            <div class="box-title">
+                                Server: {{ data_get($network, 'server.name') }}
+                            </div>
+                            <div class="box-description">
+                                Network: {{ data_get($network, 'name') }}
+                            </div>
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+        @else
+            <div>No additional servers available to attach.</div>
+        @endif
+    @endif
 </div>

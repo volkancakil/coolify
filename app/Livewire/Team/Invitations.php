@@ -8,17 +8,23 @@ use Livewire\Component;
 class Invitations extends Component
 {
     public $invitations;
+
     protected $listeners = ['refreshInvitations'];
 
     public function deleteInvitation(int $invitation_id)
     {
-        TeamInvitation::find($invitation_id)->delete();
-        $this->refreshInvitations();
-        $this->dispatch('success', 'Invitation revoked.');
+        try {
+            $initiation_found = TeamInvitation::ownedByCurrentTeam()->findOrFail($invitation_id);
+            $initiation_found->delete();
+            $this->refreshInvitations();
+            $this->dispatch('success', 'Invitation revoked.');
+        } catch (\Exception) {
+            return $this->dispatch('error', 'Invitation not found.');
+        }
     }
 
     public function refreshInvitations()
     {
-        $this->invitations = TeamInvitation::whereTeamId(currentTeam()->id)->get();
+        $this->invitations = TeamInvitation::ownedByCurrentTeam()->get();
     }
 }

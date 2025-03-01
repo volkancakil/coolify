@@ -1,43 +1,54 @@
 <div>
-    <x-modal yesOrNo modalId="{{ $modalId }}" modalTitle="Delete Scheduled Task">
-        <x-slot:modalBody>
-            <p>Are you sure you want to delete this scheduled task <span
-                    class="font-bold text-warning">({{ $task->name }})</span>?</p>
-        </x-slot:modalBody>
-    </x-modal>
-
-    <h1>Scheduled Task</h1>
+    <x-slot:title>
+        {{ data_get_str($resource, 'name')->limit(10) }} > Scheduled Tasks | Coolify
+    </x-slot>
     @if ($type === 'application')
+        <h1>Scheduled Task</h1>
         <livewire:project.application.heading :application="$resource" />
     @elseif ($type === 'service')
         <livewire:project.service.navbar :service="$resource" :parameters="$parameters" />
     @endif
 
     <form wire:submit="submit" class="w-full">
-        <div class="flex flex-col gap-2 pb-4">
-            <div class="flex items-end gap-2 pt-4">
+        <div class="flex flex-col gap-2 pb-2">
+            <div class="flex gap-2 items-end pt-4">
                 <h2>Scheduled Task</h2>
                 <x-forms.button type="submit">
                     Save
                 </x-forms.button>
-
-                <x-forms.button isError isModal modalId="{{ $modalId }}">
-                    Delete
-                </x-forms.button>
+                @if ($resource->isRunning())
+                    <x-forms.button type="button" wire:click="executeNow">
+                        Execute Now
+                    </x-forms.button>
+                @endif
+                <x-modal-confirmation title="Confirm Scheduled Task Deletion?" isErrorButton buttonTitle="Delete"
+                    submitAction="delete({{ $task->id }})" :actions="['The selected scheduled task will be permanently deleted.']" confirmationText="{{ $task->name }}"
+                    confirmationLabel="Please confirm the execution of the actions by entering the Scheduled Task Name below"
+                    shortConfirmationLabel="Scheduled Task Name" :confirmWithPassword="false"
+                    step2ButtonText="Permanently Delete" />
 
             </div>
-        </div>
-        <div class="flex w-full gap-2">
-            <x-forms.input placeholder="Name" id="task.name" label="Name" required />
-            <x-forms.input placeholder="php artisan schedule:run" id="task.command" label="Command" required />
-            <x-forms.input placeholder="0 0 * * * or daily" id="task.frequency" label="Frequency" required />
-            <x-forms.input placeholder="php" helper="You can leave it empty if your resource only have one container."
-                id="task.container" label="Container name" />
-        </div>
+            <div class="w-48">
+                <x-forms.checkbox instantSave id="isEnabled" label="Enabled" />
+            </div>
+            <div class="flex gap-2 w-full">
+                <x-forms.input placeholder="Name" id="name" label="Name" required />
+                <x-forms.input placeholder="php artisan schedule:run" id="command" label="Command" required />
+                <x-forms.input placeholder="0 0 * * * or daily" id="frequency" label="Frequency" required />
+                @if ($type === 'application')
+                    <x-forms.input placeholder="php"
+                        helper="You can leave this empty if your resource only has one container." id="container"
+                        label="Container name" />
+                @elseif ($type === 'service')
+                    <x-forms.input placeholder="php"
+                        helper="You can leave this empty if your resource only has one service in your stack. Otherwise use the stack name, without the random generated ID. So if you have a mysql service in your stack, use mysql."
+                        id="container" label="Service name" />
+                @endif
+            </div>
     </form>
 
     <div class="pt-4">
-        <h3 class="py-4">Recent executions</h3>
-        <livewire:project.shared.scheduled-task.executions key="{{ $task->id }}" selectedKey="" :executions="$task->executions->take(-20)" />
+        <h3 class="py-4">Recent executions <span class="text-xs text-neutral-500">(click to check output)</span></h3>
+        <livewire:project.shared.scheduled-task.executions :taskId="$task->id" />
     </div>
 </div>
